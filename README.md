@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mascot.png" alt="mull mascot: a sleepy grey pebble" width="160">
+  <img src="assets/mascot.gif" alt="mull mascot: a sleepy grey pebble" width="160">
 </p>
 
 <h1 align="center">mull</h1>
