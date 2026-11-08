@@ -47,6 +47,14 @@ cp .env.example .env
 echo "hey whats up cant come tmrw" | ./mull rewrite
 ```
 
+Add `-v` to see which model answered (printed to stderr, so pipes stay clean):
+
+```sh
+echo "hey whats up cant come tmrw" | ./mull -v rewrite
+# mull: model: cohere/north-mini-code:free
+# Hey, what's up? Can't come tomorrow.
+```
+
 mull reads text on stdin and prints the result on stdout, so it composes with
 Wayland clipboard tools:
 
@@ -92,7 +100,6 @@ type Provider interface {
 
 ## Roadmap
 
-- `-v` flag to show which model answered
 - Config in `~/.config/mull/` so hotkeys work from any directory
 - Hyprland keybinding recipe with `notify-send`
 - Timeouts and Ctrl-C handling

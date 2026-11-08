@@ -30,6 +30,7 @@ type chatRequest struct {
 }
 
 type chatResponse struct {
+	Model   string `json:"model"`
 	Choices []struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
@@ -38,7 +39,7 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-func (o OpenRouter) Complete(ctx context.Context, instruction, input string) (string, error) {
+func (o OpenRouter) Complete(ctx context.Context, instruction, input string) (Reply, error) {
 	body, err := json.Marshal(chatRequest{
 		Model: o.Model,
 		Messages: []chatMessage{
@@ -47,36 +48,36 @@ func (o OpenRouter) Complete(ctx context.Context, instruction, input string) (st
 		},
 	})
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+o.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
 
 	var out chatResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", fmt.Errorf("openrouter: HTTP %d: %s", resp.StatusCode, raw)
+		return Reply{}, fmt.Errorf("openrouter: HTTP %d: %s", resp.StatusCode, raw)
 	}
 	if out.Error != nil {
-		return "", fmt.Errorf("openrouter: HTTP %d: %s", resp.StatusCode, out.Error.Message)
+		return Reply{}, fmt.Errorf("openrouter: HTTP %d: %s", resp.StatusCode, out.Error.Message)
 	}
 	if resp.StatusCode != http.StatusOK || len(out.Choices) == 0 {
-		return "", fmt.Errorf("openrouter: HTTP %d: no reply: %s", resp.StatusCode, raw)
+		return Reply{}, fmt.Errorf("openrouter: HTTP %d: no reply: %s", resp.StatusCode, raw)
 	}
-	return out.Choices[0].Message.Content, nil
+	return Reply{Text: out.Choices[0].Message.Content, Model: out.Model}, nil
 }

@@ -21,7 +21,7 @@ func TestOpenRouterComplete(t *testing.T) {
 		if req.Model != "m" || len(req.Messages) != 2 || req.Messages[1].Content != "hi" {
 			t.Errorf("bad request body: %+v", req)
 		}
-		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Hello."}}]}`))
+		w.Write([]byte(`{"model":"vendor/actual","choices":[{"message":{"role":"assistant","content":"Hello."}}]}`))
 	}))
 	defer srv.Close()
 
@@ -30,8 +30,11 @@ func TestOpenRouterComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "Hello." {
-		t.Errorf("got %q, want %q", got, "Hello.")
+	if got.Text != "Hello." {
+		t.Errorf("text = %q, want %q", got.Text, "Hello.")
+	}
+	if got.Model != "vendor/actual" {
+		t.Errorf("model = %q, want %q", got.Model, "vendor/actual")
 	}
 }
 
