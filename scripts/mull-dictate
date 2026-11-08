@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Hotkey helper for push-to-talk dictation:
+#   mull-dictate start   bind to key press: record the default mic
+#   mull-dictate stop    bind to key release: transcribe, type it into the
+#                        focused window and copy it to the clipboard
+# Install by symlinking into PATH so the icon path below resolves to this repo.
+
+dir="${XDG_RUNTIME_DIR:-/tmp}/mull"
+pidfile="$dir/dictate.pid"
+audio="$dir/dictate.wav"
+notefile="$dir/dictate.note"
+icon="$(dirname "$(readlink -f "$0")")/../assets/mascot-ask.png"
+mkdir -p "$dir"
+
+notify() { notify-send -a mull -i "$icon" "$@"; }
+
+case "$1" in
+start)
+	[[ -f $pidfile ]] && kill -0 "$(<"$pidfile")" 2>/dev/null && exit 0
+	# 16 kHz mono is what Whisper uses; 10 min cap stops a stuck key filling RAM.
+	timeout 600 pw-record --rate 16000 --channels 1 --format s16 "$audio" &
+	echo $! >"$pidfile"
+	notify -p -t 600000 "mull" "Listening… release to stop" >"$notefile"
+	;;
+stop)
+	[[ -f $pidfile ]] || exit 0
+	pid=$(<"$pidfile")
+	rm -f "$pidfile"
+	# TERM, not INT: background jobs start with SIGINT ignored. pw-record still
+	# finishes the WAV header on TERM. Wait at most 3 s so a release never hangs.
+	kill -TERM "$pid" 2>/dev/null
+	for _ in {1..60}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.05; done
+	note=$(<"$notefile")
+
+	# Under ~0.3 s (16 kHz * 2 bytes * 0.3) is an accidental tap, not speech.
+	if (($(stat -c %s "$audio" 2>/dev/null || echo 0) < 10000)); then
+		notify -r "$note" -t 1500 "mull" "Too short, hold the key while speaking"
+		rm -f "$audio"
+		exit 0
+	fi
+
+	notify -r "$note" "mull" "Transcribing…"
+	if text=$(mull transcribe "$audio" 2>&1); then
+		printf '%s' "$text" | wl-copy
+		wtype -- "$text"
+		notify -r "$note" "Dictated" "$text"
+	else
+		notify -r "$note" -u critical "mull failed" "$text"
+	fi
+	rm -f "$audio"
+	;;
+*)
+	echo "usage: mull-dictate start|stop" >&2
+	exit 2
+	;;
+esac
