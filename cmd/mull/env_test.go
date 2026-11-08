@@ -27,3 +27,33 @@ func TestLoadEnv(t *testing.T) {
 		t.Errorf("missing file should be fine, got %v", err)
 	}
 }
+
+func TestLoadEnvFilesPrecedence(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "mull"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "mull", ".env"), []byte("MULL_T_X=config\nMULL_T_Y=config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	local := t.TempDir()
+	if err := os.WriteFile(filepath.Join(local, ".env"), []byte("MULL_T_X=local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(local)
+	// t.Setenv restores the old value after the test; Unsetenv makes it truly unset.
+	t.Setenv("MULL_T_X", "")
+	os.Unsetenv("MULL_T_X")
+	t.Setenv("MULL_T_Y", "")
+	os.Unsetenv("MULL_T_Y")
+
+	if err := loadEnvFiles(); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{"MULL_T_X": "local", "MULL_T_Y": "config"} {
+		if got := os.Getenv(k); got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+}

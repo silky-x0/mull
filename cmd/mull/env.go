@@ -3,17 +3,32 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+// loadEnvFiles loads ./.env, then $XDG_CONFIG_HOME/mull/.env
+// (~/.config/mull/.env). The first file to set a variable wins, so a local
+// .env overrides the user config during development.
+func loadEnvFiles() error {
+	files := []string{".env"}
+	if dir, err := os.UserConfigDir(); err == nil {
+		files = append(files, filepath.Join(dir, "mull", ".env"))
+	}
+	for _, f := range files {
+		if err := loadEnv(f); err != nil {
+			return fmt.Errorf("%s: %w", f, err)
+		}
+	}
+	return nil
+}
 
 // loadEnv reads KEY=VALUE lines from path into the process environment.
 // Variables already set in the real environment win over the file.
 // A missing file is not an error.
-//
-// shortcut: reads .env from the current directory only; move to
-// ~/.config/mull/ once mull runs from hotkeys (different working dir).
 func loadEnv(path string) error {
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {

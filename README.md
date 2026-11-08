@@ -26,11 +26,17 @@ go build ./cmd/mull
 
 ## Configure
 
-mull reads an API key from the environment or from a `.env` file in the current directory.
-Real environment variables win over `.env`.
+mull reads its settings from environment variables, falling back to `.env` files.
+The first source that sets a variable wins:
+
+1. Real environment variables
+2. `./.env` in the current directory (handy during development)
+3. `~/.config/mull/.env` (or `$XDG_CONFIG_HOME/mull/.env`)
 
 ```sh
-cp .env.example .env
+mkdir -p ~/.config/mull
+cp .env.example ~/.config/mull/.env
+chmod 600 ~/.config/mull/.env
 # paste your key from https://openrouter.ai/keys
 ```
 
@@ -62,8 +68,7 @@ Wayland clipboard tools:
 wl-paste -p | mull rewrite | wl-copy   # rewrite the current selection into the clipboard
 ```
 
-`.env` is only read from the current directory, so for hotkeys set
-`OPENROUTER_API_KEY` in your session environment instead.
+Keep your key in `~/.config/mull/.env` and this works from a hotkey in any directory.
 
 Exit codes: `0` success, `1` runtime error, `2` bad usage.
 
@@ -94,13 +99,12 @@ Every backend implements one interface in `internal/provider`:
 
 ```go
 type Provider interface {
-	Complete(ctx context.Context, instruction, input string) (string, error)
+	Complete(ctx context.Context, instruction, input string) (Reply, error)
 }
 ```
 
 ## Roadmap
 
-- Config in `~/.config/mull/` so hotkeys work from any directory
 - Hyprland keybinding recipe with `notify-send`
 - Timeouts and Ctrl-C handling
 - `ask` and `summarize` commands

@@ -17,8 +17,8 @@ const usage = `usage: echo "text" | mull [-v] rewrite`
 const defaultModel = "openrouter/free"
 
 func main() {
-	if err := loadEnv(".env"); err != nil {
-		fmt.Fprintln(os.Stderr, "mull: .env:", err)
+	if err := loadEnvFiles(); err != nil {
+		fmt.Fprintln(os.Stderr, "mull:", err)
 		os.Exit(1)
 	}
 
