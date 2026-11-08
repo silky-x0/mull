@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,5 +70,38 @@ func TestOpenAITimeout(t *testing.T) {
 	_, err := OpenAI{BaseURL: srv.URL}.Complete(ctx, "x", "y")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestOpenAITranscribe(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/transcriptions" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer k" {
+			t.Errorf("auth header = %q", got)
+		}
+		if got := r.FormValue("model"); got != "whisper-x" {
+			t.Errorf("model = %q", got)
+		}
+		f, hdr, err := r.FormFile("file")
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(f)
+		if hdr.Filename != "speech.wav" || string(data) != "RIFFfake" {
+			t.Errorf("file = %q %q", hdr.Filename, data)
+		}
+		w.Write([]byte(`{"text":" Hello there."}`))
+	}))
+	defer srv.Close()
+
+	got, err := OpenAI{BaseURL: srv.URL, APIKey: "k", Model: "whisper-x"}.
+		Transcribe(context.Background(), "speech.wav", strings.NewReader("RIFFfake"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != " Hello there." {
+		t.Errorf("got %q", got)
 	}
 }
