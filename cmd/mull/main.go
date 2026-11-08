@@ -16,6 +16,7 @@ import (
 
 const usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instruction...]
        mull presets      list preset names, custom ones included
+       mull transcribe <audio-file>   speech to text (Groq Whisper, needs GROQ_API_KEY)
 
   no argument   fix spelling and grammar only
   instruction   anything else, e.g. mull rewrite "make it sound less angry"
@@ -47,19 +48,50 @@ func main() {
 
 	switch flag.Arg(0) {
 	case "rewrite":
-		if err := rewrite(*verbose, flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "mull:", err)
-			if errors.Is(err, errInterrupted) {
-				os.Exit(130)
-			}
-			os.Exit(1)
+		exitOn(rewrite(*verbose, flag.Args()[1:]))
+	case "transcribe":
+		if flag.NArg() != 2 {
+			flag.Usage()
+			os.Exit(2)
 		}
+		exitOn(transcribe(flag.Arg(1)))
 	case "presets":
 		fmt.Println(strings.Join(presetList(), "\n"))
 	default:
 		flag.Usage()
 		os.Exit(2)
 	}
+}
+
+func exitOn(err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "mull:", err)
+	if errors.Is(err, errInterrupted) {
+		os.Exit(130)
+	}
+	os.Exit(1)
+}
+
+// requestContext stops on Ctrl-C/SIGTERM or after timeout. Create it after
+// reading stdin: once NotifyContext catches SIGINT, Ctrl-C no longer kills the
+// process, and io.ReadAll can't be cancelled.
+func requestContext() (context.Context, func()) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	return ctx, func() { cancel(); stop() }
+}
+
+// contextErr turns a cancelled request into a user-facing error, or nil.
+func contextErr(err error) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("timed out after %s", timeout)
+	case errors.Is(err, context.Canceled):
+		return errInterrupted
+	}
+	return nil
 }
 
 func rewrite(verbose bool, args []string) error {
@@ -80,23 +112,17 @@ func rewrite(verbose bool, args []string) error {
 		attempts = append(attempts, attempts[0]) // no fallback: retry once
 	}
 
-	// Set up after reading stdin: once NotifyContext catches SIGINT, Ctrl-C no
-	// longer kills the process, and io.ReadAll can't be cancelled.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := requestContext()
 	defer cancel()
 
 	msg := rewriteMessage(rewriteInstruction(args), input)
 	var lastErr error
 	for i, p := range attempts {
 		reply, err := p.Complete(ctx, rewriteSystem, msg)
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			return fmt.Errorf("timed out after %s", timeout)
-		case errors.Is(err, context.Canceled):
-			return errInterrupted
-		case err == nil:
+		if cerr := contextErr(err); cerr != nil {
+			return cerr
+		}
+		if err == nil {
 			if verbose {
 				fmt.Fprintln(os.Stderr, "mull: model:", reply.Model)
 			}
