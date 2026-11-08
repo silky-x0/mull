@@ -3,9 +3,11 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // A fake server stands in for OpenRouter, so the test needs no key or network.
@@ -48,5 +50,23 @@ func TestOpenRouterError(t *testing.T) {
 	_, err := OpenRouter{BaseURL: srv.URL}.Complete(context.Background(), "x", "y")
 	if err == nil {
 		t.Fatal("want error, got nil")
+	}
+}
+
+func TestOpenRouterTimeout(t *testing.T) {
+	// The server only notices a client hang-up after reading the body, so the
+	// handler waits on this channel instead of r.Context().
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := OpenRouter{BaseURL: srv.URL}.Complete(ctx, "x", "y")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
 }

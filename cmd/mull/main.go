@@ -3,10 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/silky-x0/mull/internal/provider"
 )
@@ -15,6 +19,11 @@ const usage = `usage: echo "text" | mull [-v] rewrite`
 
 // openrouter/free routes to whichever free model is currently available.
 const defaultModel = "openrouter/free"
+
+// Free models can take a while to answer; this only stops a hung request.
+const timeout = 60 * time.Second
+
+var errInterrupted = errors.New("interrupted")
 
 func main() {
 	if err := loadEnvFiles(); err != nil {
@@ -38,6 +47,9 @@ func main() {
 	case "rewrite":
 		if err := rewrite(*verbose); err != nil {
 			fmt.Fprintln(os.Stderr, "mull:", err)
+			if errors.Is(err, errInterrupted) {
+				os.Exit(130)
+			}
 			os.Exit(1)
 		}
 	default:
@@ -66,10 +78,23 @@ func rewrite(verbose bool) error {
 		APIKey:  key,
 		Model:   model,
 	}
-	reply, err := p.Complete(context.Background(),
+
+	// Set up after reading stdin: once NotifyContext catches SIGINT, Ctrl-C no
+	// longer kills the process, and io.ReadAll can't be cancelled.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	reply, err := p.Complete(ctx,
 		"Rewrite the text clearly and correctly. Output only the rewritten text.",
 		string(input))
-	if err != nil {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("timed out after %s", timeout)
+	case errors.Is(err, context.Canceled):
+		return errInterrupted
+	case err != nil:
 		return err
 	}
 	if verbose {
