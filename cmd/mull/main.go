@@ -9,16 +9,18 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
-
-	"github.com/silky-x0/mull/internal/provider"
 )
 
-const usage = `usage: echo "text" | mull [-v] rewrite`
+const usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instruction...]
+       mull presets      list preset names, custom ones included
 
-// openrouter/free routes to whichever free model is currently available.
-const defaultModel = "openrouter/free"
+  no argument   fix spelling and grammar only
+  instruction   anything else, e.g. mull rewrite "make it sound less angry"
+
+custom presets: set MULL_PRESET_<NAME>="instruction" (env or .env), then mull rewrite <name>`
 
 // Free models can take a while to answer; this only stops a hung request.
 const timeout = 60 * time.Second
@@ -45,38 +47,37 @@ func main() {
 
 	switch flag.Arg(0) {
 	case "rewrite":
-		if err := rewrite(*verbose); err != nil {
+		if err := rewrite(*verbose, flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "mull:", err)
 			if errors.Is(err, errInterrupted) {
 				os.Exit(130)
 			}
 			os.Exit(1)
 		}
+	case "presets":
+		fmt.Println(strings.Join(presetList(), "\n"))
 	default:
 		flag.Usage()
 		os.Exit(2)
 	}
 }
 
-func rewrite(verbose bool) error {
-	input, err := io.ReadAll(os.Stdin)
+func rewrite(verbose bool, args []string) error {
+	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return err
 	}
-
-	key := os.Getenv("OPENROUTER_API_KEY")
-	if key == "" {
-		return fmt.Errorf("OPENROUTER_API_KEY not set (get one at https://openrouter.ai/keys)")
-	}
-	model := os.Getenv("MULL_MODEL")
-	if model == "" {
-		model = defaultModel
+	input := strings.TrimSpace(string(raw))
+	if input == "" {
+		return errors.New("no input text on stdin")
 	}
 
-	var p provider.Provider = provider.OpenRouter{
-		BaseURL: "https://openrouter.ai/api/v1",
-		APIKey:  key,
-		Model:   model,
+	attempts, err := backends()
+	if err != nil {
+		return err
+	}
+	if len(attempts) == 1 {
+		attempts = append(attempts, attempts[0]) // no fallback: retry once
 	}
 
 	// Set up after reading stdin: once NotifyContext catches SIGINT, Ctrl-C no
@@ -86,20 +87,32 @@ func rewrite(verbose bool) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	reply, err := p.Complete(ctx,
-		"Rewrite the text clearly and correctly. Output only the rewritten text.",
-		string(input))
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("timed out after %s", timeout)
-	case errors.Is(err, context.Canceled):
-		return errInterrupted
-	case err != nil:
-		return err
+	msg := rewriteMessage(rewriteInstruction(args), input)
+	var lastErr error
+	for i, p := range attempts {
+		reply, err := p.Complete(ctx, rewriteSystem, msg)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return fmt.Errorf("timed out after %s", timeout)
+		case errors.Is(err, context.Canceled):
+			return errInterrupted
+		case err == nil:
+			if verbose {
+				fmt.Fprintln(os.Stderr, "mull: model:", reply.Model)
+			}
+			text := unwrapText(reply.Text)
+			if err = checkRewrite(args, input, text); err == nil {
+				fmt.Println(text)
+				return nil
+			}
+		}
+		lastErr = err
+		if verbose && i < len(attempts)-1 {
+			fmt.Fprintln(os.Stderr, "mull: trying next backend:", err)
+		}
 	}
-	if verbose {
-		fmt.Fprintln(os.Stderr, "mull: model:", reply.Model)
+	if errors.Is(lastErr, errOffTask) {
+		return fmt.Errorf("%w; try again, or pin a stronger model with MULL_MODEL", lastErr)
 	}
-	fmt.Println(reply.Text)
-	return nil
+	return lastErr
 }

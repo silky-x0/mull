@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Hotkey helper: pick a rewrite preset (or type an instruction) in rofi,
+# then rewrite the highlighted text with it via mull-rewrite.
+
+args=(-dmenu -i -p "mull" -theme-str 'entry { placeholder: "Preset or instruction…"; }')
+
+# Under HyDE, look like its own menus: wallbash colours plus Hyprland's rounding and border.
+if [[ -f ~/.local/share/rofi/themes/clipboard.rasi ]]; then
+	round=$(hyprctl -j getoption decoration:rounding | jq '.int')
+	border=$(hyprctl -j getoption general:border_size | jq '.int')
+	args+=(-theme clipboard
+		-theme-str "window { border: ${border}px; border-radius: $((round * 3 / 2))px; } element { border-radius: $((round == 0 ? 5 : round))px; }")
+fi
+
+choice=$(mull presets | rofi "${args[@]}") || exit 0
+[[ -z $choice ]] && exit 0
+
+exec "$(dirname "$(readlink -f "$0")")/mull-rewrite" "$choice"
