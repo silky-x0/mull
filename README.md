@@ -72,6 +72,34 @@ Keep your key in `~/.config/mull/.env` and this works from a hotkey in any direc
 
 Exit codes: `0` success, `1` runtime error, `2` bad usage.
 
+## Hotkey (Hyprland)
+
+[`scripts/mull-rewrite`](scripts/mull-rewrite) rewrites the highlighted text
+(Wayland primary selection) and puts the result on the clipboard, with a
+notification while it works. Needs `wl-clipboard` and `libnotify`.
+
+```sh
+go build -o ~/.local/bin/mull ./cmd/mull
+ln -s "$PWD/scripts/mull-rewrite" ~/.local/bin/mull-rewrite
+```
+
+Symlink rather than copy, so the script finds the mascot icon in `assets/`.
+Then bind a free key (check `hyprctl binds` first):
+
+```ini
+# hyprland.conf
+bind = SUPER ALT, R, exec, mull-rewrite
+```
+
+```lua
+-- hyprland.lua
+hl.bind("SUPER + ALT + R", hl.dsp.exec_cmd("mull-rewrite"), {
+	description = "rewrite selection to clipboard",
+})
+```
+
+Highlight text, press the key, paste.
+
 ## Commands
 
 | Command     | What it does                         | Status  |
@@ -105,7 +133,6 @@ type Provider interface {
 
 ## Roadmap
 
-- Hyprland keybinding recipe with `notify-send`
 - Timeouts and Ctrl-C handling
 - `ask` and `summarize` commands
 - Streaming output
@@ -120,5 +147,6 @@ go test ./...
 ```
 cmd/mull/            CLI entry point and .env loader
 internal/provider/   Provider interface + one file per AI backend
+scripts/             Desktop glue (hotkey helpers)
 assets/              Mascot images
 ```

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Hotkey helper: rewrite the highlighted text with mull and put the result on the clipboard.
+# Install by symlinking into PATH so the icon path below resolves to this repo.
+
+icon="$(dirname "$(readlink -f "$0")")/../assets/mascot-rewrite.png"
+
+input=$(wl-paste --primary --no-newline 2>/dev/null)
+if [[ -z $input ]]; then
+	notify-send -a mull -i "$icon" "mull" "Nothing selected"
+	exit 1
+fi
+
+id=$(notify-send -a mull -i "$icon" -p "mull" "Rewriting…")
+
+if out=$(printf '%s' "$input" | mull rewrite 2>&1); then
+	printf '%s' "$out" | wl-copy
+	notify-send -a mull -i "$icon" -r "$id" "Rewritten, ready to paste" "$out"
+else
+	notify-send -a mull -i "$icon" -r "$id" -u critical "mull failed" "$out"
+	exit 1
+fi
