@@ -254,6 +254,7 @@ before using mull on anything confidential. Your keys stay in
   <img src="assets/mascot-rewrite.png" alt="rewrite" width="96">
   <img src="assets/mascot-summarize.png" alt="summarize" width="96">
   <img src="assets/mascot-ask.png" alt="ask" width="96">
+  <img src="assets/mascot-dictate.png" alt="dictate" width="96">
 </p>
 
 ## Providers

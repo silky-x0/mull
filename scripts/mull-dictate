@@ -9,7 +9,7 @@ dir="${XDG_RUNTIME_DIR:-/tmp}/mull"
 pidfile="$dir/dictate.pid"
 audio="$dir/dictate.wav"
 notefile="$dir/dictate.note"
-icon="$(dirname "$(readlink -f "$0")")/../assets/mascot-ask.png"
+icon="$(dirname "$(readlink -f "$0")")/../assets/mascot-dictate.png"
 mkdir -p "$dir"
 
 notify() { notify-send -a mull -i "$icon" "$@"; }
