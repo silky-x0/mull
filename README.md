@@ -224,6 +224,14 @@ The scripts only need a Wayland session; only the key binding syntax differs.
   `wl-clipboard` prefers, so reading the selection is unreliable.
 - **X11:** not supported.
 
+### From a tablet or phone
+
+[tabdeck](https://github.com/silky-x0/tabdeck) has a mull page: it shows the
+PC's highlighted text, rewrites it with any preset or instruction, and has a
+hold-to-talk dictation button. It works from an Android tablet or a phone
+browser. mull just needs to be installed as above; tabdeck picks up your presets
+on its own.
+
 ### Troubleshooting
 
 | Symptom | Fix |
