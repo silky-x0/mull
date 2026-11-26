@@ -29,7 +29,7 @@ func TestSummarizeMessageMarksTextAsData(t *testing.T) {
 func TestCompleteUsesSystemAndMessage(t *testing.T) {
 	p := &capturingProvider{text: "Short version."}
 	var stdout, stderr bytes.Buffer
-	err := complete(context.Background(), []provider.Provider{p}, summarizeSystem, summarizeMessage("long text"), true, checkNonEmpty, &stdout, &stderr)
+	err := complete(context.Background(), []provider.Provider{p}, summarizeSystem, summarizeMessage("long text"), true, false, checkNonEmpty, &stdout, &stderr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestCompleteFallsBackOnEmptyReply(t *testing.T) {
 		&capturingProvider{text: "Answer."},
 	}
 	var stdout, stderr bytes.Buffer
-	err := complete(context.Background(), attempts, askSystem, "why?", false, checkNonEmpty, &stdout, &stderr)
+	err := complete(context.Background(), attempts, askSystem, "why?", false, false, checkNonEmpty, &stdout, &stderr)
 	if err != nil {
 		t.Fatal(err)
 	}
