@@ -20,7 +20,9 @@ func TestOpenAIComplete(t *testing.T) {
 		}
 		var req chatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatal(err)
+			t.Errorf("decode request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		if req.Model != "m" || len(req.Messages) != 2 || req.Messages[1].Content != "hi" {
 			t.Errorf("bad request body: %+v", req)
@@ -86,7 +88,9 @@ func TestOpenAITranscribe(t *testing.T) {
 		}
 		f, hdr, err := r.FormFile("file")
 		if err != nil {
-			t.Fatal(err)
+			t.Errorf("read uploaded file: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		data, _ := io.ReadAll(f)
 		if hdr.Filename != "speech.wav" || string(data) != "RIFFfake" {
@@ -103,5 +107,38 @@ func TestOpenAITranscribe(t *testing.T) {
 	}
 	if got != " Hello there." {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestOpenAIErrorBodyIsClipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(strings.Repeat("<html>broken gateway</html>", 1000)))
+	}))
+	defer srv.Close()
+
+	_, err := OpenAI{BaseURL: srv.URL}.Complete(context.Background(), "x", "y")
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if len(err.Error()) > maxErrorBytes+200 {
+		t.Errorf("error is %d bytes, want it clipped near %d", len(err.Error()), maxErrorBytes)
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Errorf("error %q is missing the truncation marker", err)
+	}
+}
+
+func TestOpenAIErrorMessageIsClipped(t *testing.T) {
+	long := strings.Repeat("no auth ", 1000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": long}})
+	}))
+	defer srv.Close()
+
+	_, err := OpenAI{BaseURL: srv.URL}.Complete(context.Background(), "x", "y")
+	if err == nil || !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("err = %v, want a clipped API error", err)
 	}
 }
