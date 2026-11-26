@@ -12,9 +12,9 @@ Highlight text and press a key to fix, shorten or reword it. Hold a key and
 speak to type by voice. You bring the AI key (or your Claude subscription);
 mull does the plumbing.
 
-> **Status: early.** Working today: rewrite (hotkey + preset menu) and
-> push-to-talk dictation, on Groq with the Claude CLI as fallback.
-> Planned: ask, summarize, screen understanding. See [Roadmap](#roadmap).
+> **Status: early.** Working today: rewrite (hotkey + preset menu), ask,
+> summarize and push-to-talk dictation, on Groq with the Claude CLI as fallback.
+> Planned: streaming, screen understanding. See [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -109,6 +109,8 @@ backend fails, mull prints each failure so you can see what went wrong.
 
 ```sh
 echo "hey whats up cant come tmrw" | mull rewrite
+mull ask "what is a goroutine?"
+echo "long article..." | mull summarize
 mull transcribe recording.wav
 ```
 
@@ -264,8 +266,8 @@ before using mull on anything confidential. Your keys stay in
 | `transcribe`| Speech to text from an audio file (Groq Whisper) | works   |
 | `presets`   | List built-in and custom preset names | works   |
 | `version`   | Print the version                    | works   |
-| `summarize` | Summarize text or a screen region    | planned |
-| `ask`       | Answer a quick question              | planned |
+| `summarize` | Summarize text from stdin            | works   |
+| `ask`       | Answer a quick question              | works   |
 
 <p>
   <img src="assets/mascot-rewrite.png" alt="rewrite" width="96">
@@ -294,9 +296,8 @@ type Provider interface {
 
 ## Roadmap
 
-- `ask` and `summarize` commands
-- Screen understanding (`mull look`) with a vision model
 - Streaming output
+- Screen understanding (`mull look`) with a vision model
 - Later: region OCR, keyring key storage, packaging (AUR)
 
 ## Development
