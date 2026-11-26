@@ -4,7 +4,7 @@ import "os"
 
 const summarizeSystem = "You are a text summarizer. Summarize the text concisely in its own language. Output only the summary, without notes or explanations."
 
-func summarize(verbose bool) error {
+func summarize(verbose, stream bool) error {
 	input, err := readInput(os.Stdin)
 	if err != nil {
 		return err
@@ -15,7 +15,7 @@ func summarize(verbose bool) error {
 	}
 	ctx, cancel := requestContext()
 	defer cancel()
-	return complete(ctx, attempts, summarizeSystem, summarizeMessage(input), verbose, checkNonEmpty, os.Stdout, os.Stderr)
+	return complete(ctx, attempts, summarizeSystem, summarizeMessage(input), verbose, stream, checkNonEmpty, os.Stdout, os.Stderr)
 }
 
 func summarizeMessage(input string) string {
