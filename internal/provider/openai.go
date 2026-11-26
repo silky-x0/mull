@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -34,6 +35,14 @@ type chatMessage struct {
 type chatRequest struct {
 	Model    string        `json:"model"`
 	Messages []chatMessage `json:"messages"`
+	Stream   bool          `json:"stream,omitempty"`
+}
+
+type streamChunk struct {
+	Model   string `json:"model"`
+	Choices []struct {
+		Delta chatMessage `json:"delta"`
+	} `json:"choices"`
 }
 
 type chatResponse struct {
@@ -63,6 +72,68 @@ func (o OpenAI) Complete(ctx context.Context, instruction, input string) (Reply,
 		return Reply{}, fmt.Errorf("%s: no reply", o.host())
 	}
 	return Reply{Text: out.Choices[0].Message.Content, Model: out.Model}, nil
+}
+
+func (o OpenAI) Stream(ctx context.Context, instruction, input string, onDelta func(string)) (Reply, error) {
+	body, err := json.Marshal(chatRequest{
+		Model:  o.Model,
+		Stream: true,
+		Messages: []chatMessage{
+			{Role: "system", Content: instruction},
+			{Role: "user", Content: input},
+		},
+	})
+	if err != nil {
+		return Reply{}, fmt.Errorf("encoding chat request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return Reply{}, fmt.Errorf("creating request: %w", err)
+	}
+	o.setHeaders(req, "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return Reply{}, fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Reply{}, o.responseError(resp)
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 4096), maxBodyBytes)
+	var text, model string
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		var chunk streamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return Reply{}, fmt.Errorf("%s: unreadable stream chunk: %s", o.host(), clipError(data))
+		}
+		if chunk.Model != "" {
+			model = chunk.Model
+		}
+		for _, c := range chunk.Choices {
+			if c.Delta.Content != "" {
+				text += c.Delta.Content
+				onDelta(c.Delta.Content)
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return Reply{}, fmt.Errorf("reading stream: %w", err)
+	}
+	if text == "" {
+		return Reply{}, fmt.Errorf("%s: no reply", o.host())
+	}
+	return Reply{Text: text, Model: model}, nil
 }
 
 // Transcribe turns speech into text via /audio/transcriptions (Whisper).
@@ -100,14 +171,16 @@ func (o OpenAI) post(ctx context.Context, path, contentType string, body io.Read
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+o.APIKey)
-	req.Header.Set("Content-Type", contentType)
+	o.setHeaders(req, contentType)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return o.responseError(resp)
+	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
 		return fmt.Errorf("reading response: %w", err)
@@ -121,13 +194,31 @@ func (o OpenAI) post(ctx context.Context, path, contentType string, body io.Read
 	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error != nil {
 		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, clipError(apiErr.Error.Message))
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, clipError(string(raw)))
-	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("%s: unreadable reply: %s", o.host(), clipError(string(raw)))
 	}
 	return nil
+}
+
+func (o OpenAI) setHeaders(req *http.Request, contentType string) {
+	req.Header.Set("Authorization", "Bearer "+o.APIKey)
+	req.Header.Set("Content-Type", contentType)
+}
+
+func (o OpenAI) responseError(resp *http.Response) error {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return fmt.Errorf("reading error response: %w", err)
+	}
+	var apiErr struct {
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error != nil {
+		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, clipError(apiErr.Error.Message))
+	}
+	return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, clipError(string(raw)))
 }
 
 func clipError(s string) string {
