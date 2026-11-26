@@ -14,7 +14,7 @@ mull does the plumbing.
 
 > **Status: early.** Working today: rewrite (hotkey + preset menu), ask,
 > summarize and push-to-talk dictation, on Groq with the Claude CLI as fallback.
-> Planned: streaming, screen understanding. See [Roadmap](#roadmap).
+> Planned: screen understanding. See [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -115,7 +115,9 @@ mull transcribe recording.wav
 ```
 
 Add `-v` before or after the command, e.g. `mull rewrite -v`, to see which
-model answered (printed to stderr, so pipes stay clean).
+model answered (printed to stderr, so pipes stay clean). Add `-s` to print
+tokens as they arrive; the OpenAI backends stream, while the Claude CLI prints
+the finished answer in one go.
 
 mull reads text on stdin and prints the result on stdout. Running `mull rewrite`
 in a terminal without piping anything exits with a hint instead of waiting. It
@@ -296,7 +298,6 @@ type Provider interface {
 
 ## Roadmap
 
-- Streaming output
 - Screen understanding (`mull look`) with a vision model
 - Later: region OCR, keyring key storage, packaging (AUR)
 
