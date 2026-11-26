@@ -23,6 +23,7 @@ var usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instr
        mull version      print the version
 
   -v, --verbose   print which model answered (to stderr); works before or after the command
+  -s, --stream    print tokens as they arrive (OpenAI backends; with Claude the final text is printed)
   no argument     fix spelling and grammar only
   instruction     anything else, e.g. mull rewrite "make it sound less angry"
 
@@ -42,7 +43,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	verbose, help, args := parseArgs(os.Args[1:])
+	verbose, stream, help, args := parseArgs(os.Args[1:])
 	if help || len(args) == 0 {
 		fmt.Fprintln(os.Stderr, usage)
 		if help {
@@ -53,11 +54,11 @@ func main() {
 
 	switch args[0] {
 	case "rewrite":
-		exitOn(rewrite(verbose, args[1:]))
+		exitOn(rewrite(verbose, stream, args[1:]))
 	case "ask":
-		exitOn(ask(verbose, args[1:]))
+		exitOn(ask(verbose, stream, args[1:]))
 	case "summarize":
-		exitOn(summarize(verbose))
+		exitOn(summarize(verbose, stream))
 	case "transcribe":
 		if len(args) != 2 {
 			fmt.Fprintln(os.Stderr, usage)
@@ -74,21 +75,23 @@ func main() {
 	}
 }
 
-func parseArgs(args []string) (verbose, help bool, rest []string) {
+func parseArgs(args []string) (verbose, stream, help bool, rest []string) {
 	rest = make([]string, 0, len(args))
 	for i, a := range args {
 		switch a {
 		case "-v", "--verbose":
 			verbose = true
+		case "-s", "--stream":
+			stream = true
 		case "-h", "--help":
 			help = true
 		case "--":
-			return verbose, help, append(rest, args[i+1:]...)
+			return verbose, stream, help, append(rest, args[i+1:]...)
 		default:
 			rest = append(rest, a)
 		}
 	}
-	return verbose, help, rest
+	return verbose, stream, help, rest
 }
 
 func exitOn(err error) {
@@ -152,7 +155,7 @@ func requestBackends() ([]provider.Provider, error) {
 	return attempts, nil
 }
 
-func rewrite(verbose bool, args []string) error {
+func rewrite(verbose, stream bool, args []string) error {
 	input, err := readInput(os.Stdin)
 	if err != nil {
 		return err
@@ -163,12 +166,12 @@ func rewrite(verbose bool, args []string) error {
 	}
 	ctx, cancel := requestContext()
 	defer cancel()
-	return runRewrite(ctx, attempts, args, input, verbose, os.Stdout, os.Stderr)
+	return runRewrite(ctx, attempts, args, input, verbose, stream, os.Stdout, os.Stderr)
 }
 
-func runRewrite(ctx context.Context, attempts []provider.Provider, args []string, input string, verbose bool, stdout, stderr io.Writer) error {
+func runRewrite(ctx context.Context, attempts []provider.Provider, args []string, input string, verbose, stream bool, stdout, stderr io.Writer) error {
 	msg := rewriteMessage(rewriteInstruction(args), input)
-	err := complete(ctx, attempts, rewriteSystem, msg, verbose, func(text string) error {
+	err := complete(ctx, attempts, rewriteSystem, msg, verbose, stream, func(text string) error {
 		return checkRewrite(args, input, text)
 	}, stdout, stderr)
 	if errors.Is(err, errOffTask) {
@@ -177,10 +180,22 @@ func runRewrite(ctx context.Context, attempts []provider.Provider, args []string
 	return err
 }
 
-func complete(ctx context.Context, attempts []provider.Provider, system, message string, verbose bool, check func(string) error, stdout, stderr io.Writer) error {
+func complete(ctx context.Context, attempts []provider.Provider, system, message string, verbose, stream bool, check func(string) error, stdout, stderr io.Writer) error {
 	errs := make([]error, 0, len(attempts))
 	for i, p := range attempts {
-		reply, err := p.Complete(ctx, system, message)
+		streamed := false
+		var reply provider.Reply
+		var err error
+		if stream {
+			if sp, ok := p.(provider.Streamer); ok {
+				reply, err = sp.Stream(ctx, system, message, func(delta string) { fmt.Fprint(stdout, delta) })
+				streamed = err == nil
+			} else {
+				reply, err = p.Complete(ctx, system, message)
+			}
+		} else {
+			reply, err = p.Complete(ctx, system, message)
+		}
 		if cerr := contextErr(err); cerr != nil {
 			return cerr
 		}
@@ -190,8 +205,15 @@ func complete(ctx context.Context, attempts []provider.Provider, system, message
 			}
 			text := unwrapText(reply.Text)
 			if err = check(text); err == nil {
-				fmt.Fprintln(stdout, text)
+				if streamed {
+					fmt.Fprintln(stdout)
+				} else {
+					fmt.Fprintln(stdout, text)
+				}
 				return nil
+			}
+			if streamed {
+				return fmt.Errorf("streamed reply failed check: %w", err)
 			}
 		}
 		errs = append(errs, fmt.Errorf("attempt %d: %w", i+1, err))
