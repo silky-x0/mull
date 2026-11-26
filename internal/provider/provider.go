@@ -16,3 +16,7 @@ type Reply struct {
 	// Empty if the backend doesn't report it.
 	Model string
 }
+
+type Streamer interface {
+	Stream(ctx context.Context, instruction, input string, onDelta func(string)) (Reply, error)
+}
