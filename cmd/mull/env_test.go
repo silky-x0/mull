@@ -3,8 +3,47 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestParseEnvLine(t *testing.T) {
+	tests := []struct {
+		line, key, val string
+		ok             bool
+	}{
+		{"MULL_A=plain", "MULL_A", "plain", true},
+		{"export MULL_B=exported", "MULL_B", "exported", true},
+		{"export\tMULL_C=tabbed", "MULL_C", "tabbed", true},
+		{"MULL_D=value # a note", "MULL_D", "value", true},
+		{"MULL_E=\"quoted # kept\" # note", "MULL_E", "quoted # kept", true},
+		{"MULL_F='single # kept'", "MULL_F", "single # kept", true},
+		{"MULL_G=abc#def", "MULL_G", "abc#def", true},
+		{"  MULL_H = spaced  ", "MULL_H", "spaced", true},
+		{"# comment", "", "", false},
+		{"not a pair", "", "", false},
+		{"=no key", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			key, val, ok := parseEnvLine(tt.line)
+			if key != tt.key || val != tt.val || ok != tt.ok {
+				t.Errorf("parseEnvLine(%q) = %q, %q, %v; want %q, %q, %v", tt.line, key, val, ok, tt.key, tt.val, tt.ok)
+			}
+		})
+	}
+}
+
+func TestLoadEnvReportsSetenvError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("BAD\x00KEY=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := loadEnv(path)
+	if err == nil || !strings.Contains(err.Error(), "setting") {
+		t.Fatalf("err = %v, want an error about setting the key", err)
+	}
+}
 
 func TestLoadEnv(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
