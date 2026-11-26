@@ -107,7 +107,8 @@ echo "hey whats up cant come tmrw" | mull rewrite
 mull transcribe recording.wav
 ```
 
-Add `-v` to see which model answered (printed to stderr, so pipes stay clean).
+Add `-v` before or after the command, e.g. `mull rewrite -v`, to see which
+model answered (printed to stderr, so pipes stay clean).
 
 mull reads text on stdin and prints the result on stdout, so it composes with
 Wayland clipboard tools:
