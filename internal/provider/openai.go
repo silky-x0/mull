@@ -9,6 +9,12 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strings"
+)
+
+const (
+	maxBodyBytes  = 1 << 20
+	maxErrorBytes = 4096
 )
 
 // OpenAI talks to any OpenAI-compatible API (chat completions, audio
@@ -102,7 +108,7 @@ func (o OpenAI) post(ctx context.Context, path, contentType string, body io.Read
 		return err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
 		return err
 	}
@@ -113,15 +119,23 @@ func (o OpenAI) post(ctx context.Context, path, contentType string, body io.Read
 		} `json:"error"`
 	}
 	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error != nil {
-		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, apiErr.Error.Message)
+		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, clipError(apiErr.Error.Message))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, raw)
+		return fmt.Errorf("%s: HTTP %d: %s", o.host(), resp.StatusCode, clipError(string(raw)))
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s: unreadable reply: %s", o.host(), raw)
+		return fmt.Errorf("%s: unreadable reply: %s", o.host(), clipError(string(raw)))
 	}
 	return nil
+}
+
+func clipError(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxErrorBytes {
+		return s[:maxErrorBytes] + " (truncated)"
+	}
+	return s
 }
 
 // host names the backend in errors, e.g. "api.groq.com".
