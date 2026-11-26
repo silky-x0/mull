@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+icon="$(dirname "$(readlink -f "$0")")/../assets/mascot-summarize.png"
+
+input=$(wl-paste --primary --no-newline 2>/dev/null)
+if [[ -z $input ]]; then
+	notify-send -a mull -i "$icon" "mull" "Nothing selected"
+	exit 1
+fi
+
+id=$(notify-send -a mull -i "$icon" -p "mull" "Summarizing…")
+
+if out=$(printf '%s' "$input" | mull summarize 2>&1); then
+	printf '%s' "$out" | wl-copy
+	notify-send -a mull -i "$icon" -r "$id" "Summary, ready to paste" "$out"
+else
+	notify-send -a mull -i "$icon" -r "$id" -u critical "mull failed" "$out"
+	exit 1
+fi
