@@ -65,7 +65,7 @@ CLI, and mull falls back to your Claude subscription when Groq fails.
 **4. Check it works**
 
 ```sh
-echo "hey whats up cant come tmrw" | mull -v rewrite
+echo "hey whats up cant come tmrw" | mull rewrite -v
 # mull: model: openai/gpt-oss-20b
 # Hey, what's up? Can't come tomorrow.
 ```
@@ -83,6 +83,10 @@ The first source that sets a variable wins:
 2. `./.env` in the current directory (handy during development)
 3. `~/.config/mull/.env` (or `$XDG_CONFIG_HOME/mull/.env`)
 
+`.env` lines are `KEY=value` (optionally `export KEY=value`). Values may be
+quoted, while `#` after whitespace starts a comment; inside quotes it stays
+part of the value.
+
 | Variable             | Default              | Notes                                                    |
 |----------------------|----------------------|----------------------------------------------------------|
 | `GROQ_API_KEY`       | —                    | Main backend: fast, free tier of 1,000 requests/day      |
@@ -98,7 +102,8 @@ You need at least one of: a Groq key, an OpenRouter key, or a logged-in
 mull tries the API first for speed (Groq ~1s), then falls back to the `claude`
 CLI on your Claude subscription (Haiku, ~4s) when the API errors (rate limit, bad
 key, outage) or its reply fails the [guardrail](#guardrail). Ctrl-C and the 60s
-timeout stop everything. Run with `-v` to see which backend answered.
+timeout stop everything. Run with `-v` to see which backend answered. If every
+backend fails, mull prints each failure so you can see what went wrong.
 
 ## Usage
 
@@ -256,6 +261,7 @@ before using mull on anything confidential. Your keys stay in
 |-------------|--------------------------------------|---------|
 | `rewrite`   | Fix, reshape or translate stdin ([modes](#rewrite-modes)) | works   |
 | `transcribe`| Speech to text from an audio file (Groq Whisper) | works   |
+| `presets`   | List built-in and custom preset names | works   |
 | `summarize` | Summarize text or a screen region    | planned |
 | `ask`       | Answer a quick question              | planned |
 
@@ -295,6 +301,8 @@ type Provider interface {
 
 ```sh
 go test ./...
+go vet ./...
+go test -race ./...
 ```
 
 ```
