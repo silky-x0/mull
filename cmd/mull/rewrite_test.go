@@ -7,14 +7,43 @@ import (
 	"testing"
 )
 
+func TestPresetDataIsConsistent(t *testing.T) {
+	names := strings.Split(presetNames, "|")
+	if len(names) != len(builtinPresets) {
+		t.Fatalf("presetNames has %d names, builtinPresets has %d", len(names), len(builtinPresets))
+	}
+	for i, p := range builtinPresets {
+		if names[i] != p.name {
+			t.Errorf("presetNames[%d] = %q, want %q", i, names[i], p.name)
+		}
+		if p.instruction == "" || p.max < p.min {
+			t.Errorf("bad definition for %q: %+v", p.name, p)
+		}
+	}
+	for _, tt := range []struct {
+		args []string
+		name string
+		ok   bool
+	}{
+		{nil, "fix", true},
+		{[]string{"shorten"}, "shorten", true},
+		{[]string{"a", "b"}, "", false},
+	} {
+		name, ok := singlePresetName(tt.args)
+		if name != tt.name || ok != tt.ok {
+			t.Errorf("singlePresetName(%q) = %q, %v; want %q, %v", tt.args, name, ok, tt.name, tt.ok)
+		}
+	}
+}
+
 func TestRewriteInstruction(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"default is fix", nil, presets["fix"]},
-		{"preset", []string{"shorten"}, presets["shorten"]},
+		{"default is fix", nil, builtinPresets[0].instruction},
+		{"preset", []string{"shorten"}, builtinPresets[1].instruction},
 		{"quoted free-form", []string{"make it sound less angry"}, "as instructed: make it sound less angry."},
 		{"unquoted free-form", []string{"translate", "to", "Hindi"}, "as instructed: translate to Hindi."},
 		{"unknown single word", []string{"formal"}, "as instructed: formal."},
