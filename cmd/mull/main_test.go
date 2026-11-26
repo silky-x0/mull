@@ -23,25 +23,68 @@ func (f fakeProvider) Complete(context.Context, string, string) (provider.Reply,
 	return provider.Reply{Text: f.text, Model: f.model}, f.err
 }
 
+type streamingProvider struct {
+	deltas []string
+}
+
+func (s *streamingProvider) Complete(context.Context, string, string) (provider.Reply, error) {
+	return provider.Reply{}, errors.New("unexpected Complete call")
+}
+
+func (s *streamingProvider) Stream(_ context.Context, _, _ string, onDelta func(string)) (provider.Reply, error) {
+	for _, d := range s.deltas {
+		onDelta(d)
+	}
+	return provider.Reply{Text: strings.Join(s.deltas, ""), Model: "stream-model"}, nil
+}
+
+func TestCompleteStreamsDeltas(t *testing.T) {
+	p := &streamingProvider{deltas: []string{"Hel", "lo."}}
+	var stdout, stderr bytes.Buffer
+	err := complete(context.Background(), []provider.Provider{p}, "sys", "msg", true, true, checkNonEmpty, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "Hello.\n" {
+		t.Errorf("stdout = %q, want %q", stdout.String(), "Hello.\n")
+	}
+	if !strings.Contains(stderr.String(), "stream-model") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestCompleteStreamFallsBackForNonStreamer(t *testing.T) {
+	p := fakeProvider{text: "Whole answer.", model: "plain-model"}
+	var stdout, stderr bytes.Buffer
+	err := complete(context.Background(), []provider.Provider{p}, "sys", "msg", false, true, checkNonEmpty, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "Whole answer.\n" {
+		t.Errorf("stdout = %q", stdout.String())
+	}
+}
+
 func TestParseArgs(t *testing.T) {
 	tests := []struct {
-		name          string
-		args          []string
-		verbose, help bool
-		rest          []string
+		name                  string
+		args                  []string
+		verbose, stream, help bool
+		rest                  []string
 	}{
-		{"flag before command", []string{"-v", "rewrite", "shorten"}, true, false, []string{"rewrite", "shorten"}},
-		{"flag after command", []string{"rewrite", "-v"}, true, false, []string{"rewrite"}},
-		{"long flag after instruction", []string{"rewrite", "fix", "--verbose"}, true, false, []string{"rewrite", "fix"}},
-		{"-v inside instruction is data", []string{"rewrite", "use -v flag"}, false, false, []string{"rewrite", "use -v flag"}},
-		{"double dash ends flags", []string{"--", "-v", "rewrite"}, false, false, []string{"-v", "rewrite"}},
-		{"help", []string{"-h", "rewrite"}, false, true, []string{"rewrite"}},
+		{"flag before command", []string{"-v", "rewrite", "shorten"}, true, false, false, []string{"rewrite", "shorten"}},
+		{"flag after command", []string{"rewrite", "-v"}, true, false, false, []string{"rewrite"}},
+		{"long flag after instruction", []string{"rewrite", "fix", "--verbose"}, true, false, false, []string{"rewrite", "fix"}},
+		{"stream flag", []string{"ask", "-s", "why?"}, false, true, false, []string{"ask", "why?"}},
+		{"-v inside instruction is data", []string{"rewrite", "use -v flag"}, false, false, false, []string{"rewrite", "use -v flag"}},
+		{"double dash ends flags", []string{"--", "-v", "rewrite"}, false, false, false, []string{"-v", "rewrite"}},
+		{"help", []string{"-h", "rewrite"}, false, false, true, []string{"rewrite"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			verbose, help, rest := parseArgs(tt.args)
-			if verbose != tt.verbose || help != tt.help {
-				t.Errorf("parseArgs(%q) = verbose %v, help %v", tt.args, verbose, help)
+			verbose, stream, help, rest := parseArgs(tt.args)
+			if verbose != tt.verbose || stream != tt.stream || help != tt.help {
+				t.Errorf("parseArgs(%q) = verbose %v, stream %v, help %v", tt.args, verbose, stream, help)
 			}
 			if !slices.Equal(rest, tt.rest) {
 				t.Errorf("rest = %q, want %q", rest, tt.rest)
@@ -97,7 +140,7 @@ func TestRunRewriteKeepsAllErrors(t *testing.T) {
 		fakeProvider{err: errors.New("claude: not logged in")},
 	}
 	var stdout, stderr bytes.Buffer
-	err := runRewrite(context.Background(), backends, nil, "teh cat", false, &stdout, &stderr)
+	err := runRewrite(context.Background(), backends, nil, "teh cat", false, false, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -114,7 +157,7 @@ func TestRunRewriteFallsBack(t *testing.T) {
 		fakeProvider{text: "The cat.", model: "vendor/model"},
 	}
 	var stdout, stderr bytes.Buffer
-	if err := runRewrite(context.Background(), backends, nil, "teh cat", true, &stdout, &stderr); err != nil {
+	if err := runRewrite(context.Background(), backends, nil, "teh cat", true, false, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(stdout.String()); got != "The cat." {
@@ -129,7 +172,7 @@ func TestRunRewriteOffTaskHint(t *testing.T) {
 	tutorial := strings.Repeat("hooks are functions. ", 10)
 	backends := []provider.Provider{fakeProvider{text: tutorial}}
 	var stdout, stderr bytes.Buffer
-	err := runRewrite(context.Background(), backends, []string{"shorten"}, "question?", false, &stdout, &stderr)
+	err := runRewrite(context.Background(), backends, []string{"shorten"}, "question?", false, false, &stdout, &stderr)
 	if !errors.Is(err, errOffTask) {
 		t.Fatalf("err = %v, want errOffTask", err)
 	}
