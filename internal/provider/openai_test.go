@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +109,38 @@ func TestOpenAITranscribe(t *testing.T) {
 	}
 	if got != " Hello there." {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestOpenAIStream(t *testing.T) {
+	var req chatRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"model\":\"vendor/stream\",\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"lo.\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	var deltas []string
+	got, err := OpenAI{BaseURL: srv.URL, APIKey: "k", Model: "m"}.
+		Stream(context.Background(), "rewrite", "hi", func(s string) { deltas = append(deltas, s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !req.Stream {
+		t.Error("request did not set stream: true")
+	}
+	if !slices.Equal(deltas, []string{"Hel", "lo."}) {
+		t.Errorf("deltas = %q", deltas)
+	}
+	if got.Text != "Hello." || got.Model != "vendor/stream" {
+		t.Errorf("reply = %+v", got)
 	}
 }
 
