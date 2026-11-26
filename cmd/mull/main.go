@@ -15,9 +15,10 @@ import (
 	"github.com/silky-x0/mull/internal/provider"
 )
 
-const usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instruction...]
+var usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instruction...]
        mull presets      list preset names, custom ones included
        mull transcribe <audio-file>   speech to text (Groq Whisper, needs GROQ_API_KEY)
+       mull version      print the version
 
   -v, --verbose   print which model answered (to stderr); works before or after the command
   no argument     fix spelling and grammar only
@@ -28,7 +29,10 @@ custom presets: set MULL_PRESET_<NAME>="instruction" (env or .env), then mull re
 // Free models can take a while to answer; this only stops a hung request.
 const timeout = 60 * time.Second
 
-var errInterrupted = errors.New("interrupted")
+var (
+	errInterrupted = errors.New("interrupted")
+	version        = "dev"
+)
 
 func main() {
 	if err := loadEnvFiles(); err != nil {
@@ -56,6 +60,8 @@ func main() {
 		exitOn(transcribe(args[1]))
 	case "presets":
 		fmt.Println(strings.Join(presetList(), "\n"))
+	case "version":
+		fmt.Println(version)
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
@@ -110,14 +116,29 @@ func contextErr(err error) error {
 	return nil
 }
 
-func rewrite(verbose bool, args []string) error {
-	raw, err := io.ReadAll(os.Stdin)
+func readInput(f *os.File) (string, error) {
+	info, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("reading stdin: %w", err)
+		return "", fmt.Errorf("checking stdin: %w", err)
+	}
+	if info.Mode()&os.ModeCharDevice != 0 {
+		return "", errors.New("no input text on stdin: pipe text in, e.g. echo \"text\" | mull rewrite")
+	}
+	raw, err := io.ReadAll(f)
+	if err != nil {
+		return "", fmt.Errorf("reading stdin: %w", err)
 	}
 	input := strings.TrimSpace(string(raw))
 	if input == "" {
-		return errors.New("no input text on stdin")
+		return "", errors.New("no input text on stdin")
+	}
+	return input, nil
+}
+
+func rewrite(verbose bool, args []string) error {
+	input, err := readInput(os.Stdin)
+	if err != nil {
+		return err
 	}
 
 	attempts, err := backends()
