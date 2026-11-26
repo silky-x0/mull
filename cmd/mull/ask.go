@@ -8,7 +8,7 @@ import (
 
 const askSystem = "You are a knowledgeable assistant. Answer the question accurately and concisely. Output only the answer, with no preamble or questions back."
 
-func ask(verbose bool, args []string) error {
+func ask(verbose, stream bool, args []string) error {
 	q, err := askQuestion(args)
 	if err != nil {
 		return err
@@ -19,7 +19,7 @@ func ask(verbose bool, args []string) error {
 	}
 	ctx, cancel := requestContext()
 	defer cancel()
-	return complete(ctx, attempts, askSystem, q, verbose, checkNonEmpty, os.Stdout, os.Stderr)
+	return complete(ctx, attempts, askSystem, q, verbose, stream, checkNonEmpty, os.Stdout, os.Stderr)
 }
 
 func askQuestion(args []string) (string, error) {
