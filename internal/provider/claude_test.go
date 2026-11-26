@@ -44,6 +44,27 @@ func TestClaudeCLIComplete(t *testing.T) {
 	}
 }
 
+func TestClaudeCLINonzeroExitWithJSON(t *testing.T) {
+	fakeClaude(t, `echo '{"result":"Hello.","is_error":false,"modelUsage":{"claude-haiku-5-5":{}}}'; exit 3`)
+
+	_, err := ClaudeCLI{}.Complete(context.Background(), "x", "y")
+	if err == nil || !strings.Contains(err.Error(), "exit status 3") {
+		t.Fatalf("err = %v, want the CLI's exit status", err)
+	}
+}
+
+func TestClaudeCLIModelIsDeterministic(t *testing.T) {
+	fakeClaude(t, `echo '{"result":"Hello.","is_error":false,"modelUsage":{"z-model":{},"a-model":{},"m-model":{}}}'`)
+
+	got, err := ClaudeCLI{}.Complete(context.Background(), "x", "y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "a-model" {
+		t.Errorf("model = %q, want a-model", got.Model)
+	}
+}
+
 func TestClaudeCLIError(t *testing.T) {
 	fakeClaude(t, `echo '{"result":"Not logged in · Please run /login","is_error":true}'`)
 	_, err := ClaudeCLI{}.Complete(context.Background(), "x", "y")
