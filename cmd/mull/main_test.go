@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -45,6 +47,47 @@ func TestParseArgs(t *testing.T) {
 				t.Errorf("rest = %q, want %q", rest, tt.rest)
 			}
 		})
+	}
+}
+
+func TestReadInput(t *testing.T) {
+	dir := t.TempDir()
+	withText := filepath.Join(dir, "text")
+	if err := os.WriteFile(withText, []byte("  teh cat  \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(withText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := readInput(f)
+	f.Close()
+	if err != nil || got != "teh cat" {
+		t.Fatalf("readInput = %q, %v; want %q", got, err, "teh cat")
+	}
+
+	empty := filepath.Join(dir, "empty")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err = os.Open(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = readInput(f)
+	f.Close()
+	if err == nil {
+		t.Fatal("want an error for empty input")
+	}
+
+	f, err = os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = readInput(f)
+	f.Close()
+	if err == nil || !strings.Contains(err.Error(), "pipe text in") {
+		t.Fatalf("err = %v, want a hint about piping text", err)
 	}
 }
 
