@@ -17,6 +17,8 @@ import (
 
 var usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instruction...]
        mull presets      list preset names, custom ones included
+       mull ask <question>            answer a question
+       mull summarize                 summarize text from stdin
        mull transcribe <audio-file>   speech to text (Groq Whisper, needs GROQ_API_KEY)
        mull version      print the version
 
@@ -52,6 +54,10 @@ func main() {
 	switch args[0] {
 	case "rewrite":
 		exitOn(rewrite(verbose, args[1:]))
+	case "ask":
+		exitOn(ask(verbose, args[1:]))
+	case "summarize":
+		exitOn(summarize(verbose))
 	case "transcribe":
 		if len(args) != 2 {
 			fmt.Fprintln(os.Stderr, usage)
@@ -135,20 +141,26 @@ func readInput(f *os.File) (string, error) {
 	return input, nil
 }
 
+func requestBackends() ([]provider.Provider, error) {
+	attempts, err := backends()
+	if err != nil {
+		return nil, err
+	}
+	if len(attempts) == 1 {
+		attempts = append(attempts, attempts[0])
+	}
+	return attempts, nil
+}
+
 func rewrite(verbose bool, args []string) error {
 	input, err := readInput(os.Stdin)
 	if err != nil {
 		return err
 	}
-
-	attempts, err := backends()
+	attempts, err := requestBackends()
 	if err != nil {
 		return err
 	}
-	if len(attempts) == 1 {
-		attempts = append(attempts, attempts[0]) // no fallback: retry once
-	}
-
 	ctx, cancel := requestContext()
 	defer cancel()
 	return runRewrite(ctx, attempts, args, input, verbose, os.Stdout, os.Stderr)
@@ -156,9 +168,19 @@ func rewrite(verbose bool, args []string) error {
 
 func runRewrite(ctx context.Context, attempts []provider.Provider, args []string, input string, verbose bool, stdout, stderr io.Writer) error {
 	msg := rewriteMessage(rewriteInstruction(args), input)
+	err := complete(ctx, attempts, rewriteSystem, msg, verbose, func(text string) error {
+		return checkRewrite(args, input, text)
+	}, stdout, stderr)
+	if errors.Is(err, errOffTask) {
+		return fmt.Errorf("%w; try again, or pin a stronger model with MULL_MODEL", err)
+	}
+	return err
+}
+
+func complete(ctx context.Context, attempts []provider.Provider, system, message string, verbose bool, check func(string) error, stdout, stderr io.Writer) error {
 	errs := make([]error, 0, len(attempts))
 	for i, p := range attempts {
-		reply, err := p.Complete(ctx, rewriteSystem, msg)
+		reply, err := p.Complete(ctx, system, message)
 		if cerr := contextErr(err); cerr != nil {
 			return cerr
 		}
@@ -167,7 +189,7 @@ func runRewrite(ctx context.Context, attempts []provider.Provider, args []string
 				fmt.Fprintln(stderr, "mull: model:", reply.Model)
 			}
 			text := unwrapText(reply.Text)
-			if err = checkRewrite(args, input, text); err == nil {
+			if err = check(text); err == nil {
 				fmt.Fprintln(stdout, text)
 				return nil
 			}
@@ -177,9 +199,12 @@ func runRewrite(ctx context.Context, attempts []provider.Provider, args []string
 			fmt.Fprintln(stderr, "mull: trying next backend:", err)
 		}
 	}
-	allErr := errors.Join(errs...)
-	if errors.Is(allErr, errOffTask) {
-		return fmt.Errorf("%w; try again, or pin a stronger model with MULL_MODEL", allErr)
+	return errors.Join(errs...)
+}
+
+func checkNonEmpty(text string) error {
+	if text == "" {
+		return errors.New("model returned empty text")
 	}
-	return allErr
+	return nil
 }
