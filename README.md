@@ -115,8 +115,9 @@ mull transcribe recording.wav
 Add `-v` before or after the command, e.g. `mull rewrite -v`, to see which
 model answered (printed to stderr, so pipes stay clean).
 
-mull reads text on stdin and prints the result on stdout, so it composes with
-Wayland clipboard tools:
+mull reads text on stdin and prints the result on stdout. Running `mull rewrite`
+in a terminal without piping anything exits with a hint instead of waiting. It
+composes with Wayland clipboard tools:
 
 ```sh
 wl-paste -p | mull rewrite | wl-copy   # rewrite the current selection into the clipboard
@@ -262,6 +263,7 @@ before using mull on anything confidential. Your keys stay in
 | `rewrite`   | Fix, reshape or translate stdin ([modes](#rewrite-modes)) | works   |
 | `transcribe`| Speech to text from an audio file (Groq Whisper) | works   |
 | `presets`   | List built-in and custom preset names | works   |
+| `version`   | Print the version                    | works   |
 | `summarize` | Summarize text or a screen region    | planned |
 | `ask`       | Answer a quick question              | planned |
 
