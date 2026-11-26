@@ -20,7 +20,7 @@ func transcribe(path string) error {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening %s: %w", path, err)
 	}
 	defer f.Close()
 
@@ -33,7 +33,7 @@ func transcribe(path string) error {
 		return cerr
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("transcribing %s: %w", path, err)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
