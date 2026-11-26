@@ -41,19 +41,56 @@ func loadEnv(path string) error {
 
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, val, ok := strings.Cut(line, "=")
+		key, val, ok := parseEnvLine(sc.Text())
 		if !ok {
 			continue
 		}
-		key = strings.TrimSpace(key)
-		val = strings.Trim(strings.TrimSpace(val), `"'`)
 		if _, set := os.LookupEnv(key); !set {
-			os.Setenv(key, val)
+			if err := os.Setenv(key, val); err != nil {
+				return fmt.Errorf("setting %s: %w", key, err)
+			}
 		}
 	}
 	return sc.Err()
+}
+
+func parseEnvLine(line string) (key, val string, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false
+	}
+	if rest, found := strings.CutPrefix(line, "export"); found && len(rest) > 0 && (rest[0] == ' ' || rest[0] == '\t') {
+		line = strings.TrimSpace(rest)
+	}
+	key, raw, ok := strings.Cut(line, "=")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", "", false
+	}
+	return key, parseEnvValue(raw), true
+}
+
+func parseEnvValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	var quote byte
+	for i := 0; i < len(v); i++ {
+		switch {
+		case quote != 0:
+			if v[i] == quote {
+				quote = 0
+			}
+		case v[i] == '"' || v[i] == '\'':
+			quote = v[i]
+		case v[i] == '#' && i > 0 && (v[i-1] == ' ' || v[i-1] == '\t'):
+			v = v[:i]
+		}
+	}
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		v = v[1 : len(v)-1]
+	}
+	return v
 }
