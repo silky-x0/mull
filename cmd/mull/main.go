@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,14 +11,17 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/silky-x0/mull/internal/provider"
 )
 
 const usage = `usage: echo "text" | mull [-v] rewrite [` + presetNames + ` | instruction...]
        mull presets      list preset names, custom ones included
        mull transcribe <audio-file>   speech to text (Groq Whisper, needs GROQ_API_KEY)
 
-  no argument   fix spelling and grammar only
-  instruction   anything else, e.g. mull rewrite "make it sound less angry"
+  -v, --verbose   print which model answered (to stderr); works before or after the command
+  no argument     fix spelling and grammar only
+  instruction     anything else, e.g. mull rewrite "make it sound less angry"
 
 custom presets: set MULL_PRESET_<NAME>="instruction" (env or .env), then mull rewrite <name>`
 
@@ -34,33 +36,47 @@ func main() {
 		os.Exit(1)
 	}
 
-	verbose := flag.Bool("v", false, "print which model answered (to stderr)")
-	flag.Usage = func() {
+	verbose, help, args := parseArgs(os.Args[1:])
+	if help || len(args) == 0 {
 		fmt.Fprintln(os.Stderr, usage)
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-
-	if flag.NArg() < 1 {
-		flag.Usage()
+		if help {
+			return
+		}
 		os.Exit(2)
 	}
 
-	switch flag.Arg(0) {
+	switch args[0] {
 	case "rewrite":
-		exitOn(rewrite(*verbose, flag.Args()[1:]))
+		exitOn(rewrite(verbose, args[1:]))
 	case "transcribe":
-		if flag.NArg() != 2 {
-			flag.Usage()
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, usage)
 			os.Exit(2)
 		}
-		exitOn(transcribe(flag.Arg(1)))
+		exitOn(transcribe(args[1]))
 	case "presets":
 		fmt.Println(strings.Join(presetList(), "\n"))
 	default:
-		flag.Usage()
+		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+func parseArgs(args []string) (verbose, help bool, rest []string) {
+	rest = make([]string, 0, len(args))
+	for i, a := range args {
+		switch a {
+		case "-v", "--verbose":
+			verbose = true
+		case "-h", "--help":
+			help = true
+		case "--":
+			return verbose, help, append(rest, args[i+1:]...)
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return verbose, help, rest
 }
 
 func exitOn(err error) {
@@ -97,7 +113,7 @@ func contextErr(err error) error {
 func rewrite(verbose bool, args []string) error {
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading stdin: %w", err)
 	}
 	input := strings.TrimSpace(string(raw))
 	if input == "" {
@@ -114,9 +130,12 @@ func rewrite(verbose bool, args []string) error {
 
 	ctx, cancel := requestContext()
 	defer cancel()
+	return runRewrite(ctx, attempts, args, input, verbose, os.Stdout, os.Stderr)
+}
 
+func runRewrite(ctx context.Context, attempts []provider.Provider, args []string, input string, verbose bool, stdout, stderr io.Writer) error {
 	msg := rewriteMessage(rewriteInstruction(args), input)
-	var lastErr error
+	errs := make([]error, 0, len(attempts))
 	for i, p := range attempts {
 		reply, err := p.Complete(ctx, rewriteSystem, msg)
 		if cerr := contextErr(err); cerr != nil {
@@ -124,21 +143,22 @@ func rewrite(verbose bool, args []string) error {
 		}
 		if err == nil {
 			if verbose {
-				fmt.Fprintln(os.Stderr, "mull: model:", reply.Model)
+				fmt.Fprintln(stderr, "mull: model:", reply.Model)
 			}
 			text := unwrapText(reply.Text)
 			if err = checkRewrite(args, input, text); err == nil {
-				fmt.Println(text)
+				fmt.Fprintln(stdout, text)
 				return nil
 			}
 		}
-		lastErr = err
+		errs = append(errs, fmt.Errorf("attempt %d: %w", i+1, err))
 		if verbose && i < len(attempts)-1 {
-			fmt.Fprintln(os.Stderr, "mull: trying next backend:", err)
+			fmt.Fprintln(stderr, "mull: trying next backend:", err)
 		}
 	}
-	if errors.Is(lastErr, errOffTask) {
-		return fmt.Errorf("%w; try again, or pin a stronger model with MULL_MODEL", lastErr)
+	allErr := errors.Join(errs...)
+	if errors.Is(allErr, errOffTask) {
+		return fmt.Errorf("%w; try again, or pin a stronger model with MULL_MODEL", allErr)
 	}
-	return lastErr
+	return allErr
 }
