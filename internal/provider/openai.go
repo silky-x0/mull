@@ -52,12 +52,12 @@ func (o OpenAI) Complete(ctx context.Context, instruction, input string) (Reply,
 		},
 	})
 	if err != nil {
-		return Reply{}, err
+		return Reply{}, fmt.Errorf("encoding chat request: %w", err)
 	}
 
 	var out chatResponse
 	if err := o.post(ctx, "/chat/completions", "application/json", bytes.NewReader(body), &out); err != nil {
-		return Reply{}, err
+		return Reply{}, fmt.Errorf("chat completion: %w", err)
 	}
 	if len(out.Choices) == 0 {
 		return Reply{}, fmt.Errorf("%s: no reply", o.host())
@@ -72,23 +72,23 @@ func (o OpenAI) Transcribe(ctx context.Context, filename string, audio io.Reader
 	w := multipart.NewWriter(&body)
 	fw, err := w.CreateFormFile("file", filename)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("creating upload form: %w", err)
 	}
 	if _, err := io.Copy(fw, audio); err != nil {
-		return "", err
+		return "", fmt.Errorf("reading audio: %w", err)
 	}
 	if err := w.WriteField("model", o.Model); err != nil {
-		return "", err
+		return "", fmt.Errorf("writing model field: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return "", err
+		return "", fmt.Errorf("closing upload form: %w", err)
 	}
 
 	var out struct {
 		Text string `json:"text"`
 	}
 	if err := o.post(ctx, "/audio/transcriptions", w.FormDataContentType(), &body, &out); err != nil {
-		return "", err
+		return "", fmt.Errorf("transcription: %w", err)
 	}
 	return out.Text, nil
 }
@@ -98,19 +98,19 @@ func (o OpenAI) Transcribe(ctx context.Context, filename string, audio io.Reader
 func (o OpenAI) post(ctx context.Context, path, contentType string, body io.Reader, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+path, body)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+o.APIKey)
 	req.Header.Set("Content-Type", contentType)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return err
+		return fmt.Errorf("reading response: %w", err)
 	}
 
 	var apiErr struct {
