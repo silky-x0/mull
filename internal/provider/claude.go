@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -47,12 +49,16 @@ func (c ClaudeCLI) Complete(ctx context.Context, instruction, input string) (Rep
 		}
 		return Reply{}, fmt.Errorf("claude: unreadable output: %w", err)
 	}
+	if runErr != nil {
+		return Reply{}, fmt.Errorf("claude: %w: %s", runErr, strings.TrimSpace(stderr.String()))
+	}
 	if res.IsError {
 		return Reply{}, fmt.Errorf("claude: %s", res.Result)
 	}
+	models := slices.Sorted(maps.Keys(res.ModelUsage))
 	var model string
-	for m := range res.ModelUsage {
-		model = m
+	if len(models) > 0 {
+		model = models[0]
 	}
 	return Reply{Text: res.Result, Model: model}, nil
 }
