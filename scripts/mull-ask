@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+icon="$(dirname "$(readlink -f "$0")")/../assets/mascot-ask.png"
+
+args=(-dmenu -i -p "mull ask" -theme-str 'entry { placeholder: "Ask a question…"; }')
+if [[ -f ~/.local/share/rofi/themes/clipboard.rasi ]]; then
+	round=$(hyprctl -j getoption decoration:rounding | jq '.int')
+	border=$(hyprctl -j getoption general:border_size | jq '.int')
+	args+=(-theme clipboard
+		-theme-str "window { border: ${border}px; border-radius: $((round * 3 / 2))px; } element { border-radius: $((round == 0 ? 5 : round))px; }")
+fi
+
+question=$(rofi "${args[@]}") || exit 0
+[[ -z $question ]] && exit 0
+
+id=$(notify-send -a mull -i "$icon" -p "mull" "Thinking…")
+if out=$(mull ask "$question" 2>&1); then
+	printf '%s' "$out" | wl-copy
+	notify-send -a mull -i "$icon" -r "$id" "Answer, ready to paste" "$out"
+else
+	notify-send -a mull -i "$icon" -r "$id" -u critical "mull failed" "$out"
+	exit 1
+fi
