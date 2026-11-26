@@ -42,6 +42,8 @@ go build -o ~/.local/bin/mull ./cmd/mull
 ln -s "$PWD/scripts/mull-rewrite" ~/.local/bin/
 ln -s "$PWD/scripts/mull-menu"    ~/.local/bin/
 ln -s "$PWD/scripts/mull-dictate" ~/.local/bin/
+ln -s "$PWD/scripts/mull-ask"     ~/.local/bin/
+ln -s "$PWD/scripts/mull-summarize" ~/.local/bin/
 ```
 
 Symlink the scripts rather than copying them: they find the mascot icons in the
@@ -72,7 +74,9 @@ echo "hey whats up cant come tmrw" | mull rewrite -v
 
 **5. Bind keys** in your Hyprland config, see [Hotkeys](#hotkeys-hyprland). The
 defaults used below: `SUPER+ALT+R` fix selection, `SUPER+M` preset menu, hold
-`F9` to dictate. Pick free keys: `hyprctl binds` lists the ones in use.
+`F9` to dictate, `SUPER+ALT+A` ask, `SUPER+ALT+C` summarize selection. Pick free
+keys: `hyprctl binds` lists the ones in use (`S` is commonly taken by the
+scratchpad or OCR).
 
 ## Configure
 
@@ -171,7 +175,7 @@ wrong answer. Free-form instructions and custom presets skip the length check.
 
 ## Hotkeys (Hyprland)
 
-All three scripts are installed in [Quick start](#quick-start) step 2.
+All five scripts are installed in [Quick start](#quick-start) step 2.
 
 **Rewrite.** [`scripts/mull-rewrite`](scripts/mull-rewrite) rewrites the
 highlighted text (Wayland primary selection, no Ctrl+C needed) and puts the
@@ -200,6 +204,29 @@ instruction and press Enter. Escape cancels.
 bind = SUPER, M, exec, mull-menu
 ```
 
+**Ask.** [`scripts/mull-ask`](scripts/mull-ask) opens a rofi prompt for a
+question, then copies the answer and shows it in a notification.
+
+```ini
+bind = SUPER ALT, A, exec, mull-ask
+```
+
+```lua
+hl.bind("SUPER + ALT + A", hl.dsp.exec_cmd("mull-ask"), { description = "ask mull" })
+```
+
+**Summarize.** [`scripts/mull-summarize`](scripts/mull-summarize) summarizes the
+highlighted text and puts the result on the clipboard. `C` is used because `S`
+is taken by scratchpad and OCR on most setups.
+
+```ini
+bind = SUPER ALT, C, exec, mull-summarize
+```
+
+```lua
+hl.bind("SUPER + ALT + C", hl.dsp.exec_cmd("mull-summarize"), { description = "summarize selection with mull" })
+```
+
 **Dictation (push-to-talk).** [`scripts/mull-dictate`](scripts/mull-dictate)
 records the default mic while a key is held, then transcribes with Groq Whisper,
 types the text into the focused window (`wtype`) and copies it to the clipboard.
@@ -226,7 +253,8 @@ while dictating, the mic picks them up too.
 The scripts only need a Wayland session; only the key binding syntax differs.
 
 - **Sway / river / other wlroots compositors:** everything works. In Sway:
-  `bindsym $mod+Alt+r exec mull-rewrite`, and for push-to-talk
+  `bindsym $mod+Alt+r exec mull-rewrite`, `bindsym $mod+Alt+a exec mull-ask`,
+  `bindsym $mod+Alt+c exec mull-summarize`, and for push-to-talk
   `bindsym F9 exec mull-dictate start` plus `bindsym --release F9 exec mull-dictate stop`.
 - **KDE Plasma:** bind the commands in System Settings → Shortcuts. Dictation
   needs a press/release binding, which Plasma's shortcut editor can't do.
